@@ -9,8 +9,11 @@
 #define COLOR_RED "\x1b[31m"
 #define COLOR_DEFAULT "\e[m"
 
+//minimum line length alloceted at once
+#define MIN_LENGTH 100
+
 #define END_LIB ".c"
-#define HELP_TEXT "Options:\n\t-r:\tIs the search recursive\n\t-e:\tdefine the filename extensions to be read\n\t-f:\tspecify files to be read\n\t-l:\tShow line numbers\n\t-h:\tprint this help text\n"
+#define HELP_TEXT "Usage:\t tasklist <args>\n\nOptions:\n\t-r:\tIs the search recursive\n\t-e:\tdefine the filename extensions to be read\n\t-f:\tspecify files to be read\n\t-l:\tShow line numbers\n\t-h:\tprint this help text\n"
 
 //Global option variables
 typedef struct glob_st{
@@ -31,17 +34,24 @@ void printtasks(char* filename, variable var){
 		return;
 	}
 
-	char line[100]; //TODO variable line length
-	int first = 1; //flag for file name print, print only if todos found and for oce only
+	char* line=malloc(MIN_LENGTH*sizeof(char));
+	line[0]=0; //making sure it is empty
+	
+	int first = 1; //flag for file name print, print only if todos found and for once only
+	int row = 0; //counting for line number
 
-	int row = 0;
-	while((fgets(line, 100, f))!=NULL){
+	while((fgets(line+strlen(line), MIN_LENGTH, f))!=NULL){
+		
+		if(strstr(line, "\n")==NULL){ //if the whole line wasn't captured
+			line=realloc(line, (strlen(line)+MIN_LENGTH)*sizeof(char)); //reserve more space...
+			continue; //...and read more
+		}
 		
 		row++;
 		
-		//TODO excuding strings containing todo (skip over "..." parts)		
-		char* task=strstr(line, "//TODO");
-		
+		//TODO excluding todos inside of a string?
+
+			char* task=strstr(line, "//TODO");
 		
 		if(task!=NULL){ //we have a task!!!
 			if(first){
@@ -53,7 +63,12 @@ void printtasks(char* filename, variable var){
 			else
 				printf("\t"COLOR_GREEN "%s" COLOR_DEFAULT, task);
 		}
+
+		line=realloc(line, MIN_LENGTH*sizeof(char));
+		line[0]=0;//remove earlier string
+		
 	}
+	free(line);
 	fclose(f);
 }
 
@@ -86,10 +101,17 @@ void scandirtasks(char* dirName, variable var){
 	//scan first for files only
 	while((dp = readdir(dir))!=NULL){
 		char* ending=strstr(dp->d_name, "."); //ending of the file name
-		if(ending!=NULL &&
-				isCompatible(ending, *var.end_lib) && //TODO filename list superior over file extensions
-				isonlist(var.fileslist, var.files, dp->d_name)){//if file is ok
+		//printf("%s\n", ending);
 
+		//This is messy but hang on... is specified file or match the ending or no spesification and match the default
+		if(dp->d_name[0]!='.' && ( //don't include hidden filel //TODO make hidden files option? 
+				(var.files!=0 && isonlist(var.fileslist, var.files, dp->d_name)) || //most fundamental rule
+				(ending!=NULL && ( //ending is fine
+					(var.files==0 && var.end_lib==NULL && isCompatible(END_LIB, ending)) || //no ending specified(default ending)
+					(var.end_lib!=NULL && isCompatible(*var.end_lib, ending))) //ending specified
+				)
+			) 
+		){
 			char completeName[strlen(dirName) + strlen(dp->d_name)+2];
 			strcpy(completeName,dirName);
 			strcat(completeName, "/");
@@ -121,8 +143,7 @@ int main(int argc, char* argv[]){
 	
 	
 	
-	char* end_lib=END_LIB;
-	variable var={0, &end_lib, NULL, 0, 0};//all options set to default
+	variable var={0, NULL, NULL, 0, 0};//all options set to default
 
 	//messy code :(
 	for(int i=1; i<argc; i++){
@@ -132,16 +153,24 @@ int main(int argc, char* argv[]){
 						break;
 
 				case 'e': i++;
+						if(i>=argc){
+							printf(HELP_TEXT);
+							return 0;
+						}
 						var.end_lib=argv+i;
 						break;
 				
 				case 'f': i++;
+						if(i>=argc){
+							printf(HELP_TEXT);
+							return 0;
+						}
 						var.fileslist=argv+i; //setting the pointer to first filename pointer and counting how many we got
-						while(i<argc && argv[i][0]!='-'){ //loop tropugh following filenames
+						for(int j=0; j+i<argc && argv[i][0]!='-'; j++){ //loop tropugh following filenames
 							var.files++;
-							i++;
 						}
 						break;
+
 				case 'l': var.line=1;
 						
 						break;
